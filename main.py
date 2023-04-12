@@ -1,11 +1,15 @@
+import time
+
 import requests
 import selectorlib
 import smtplib
 import ssl
-import os
+import sqlite3
 
 
 url = 'http://programmer100.pythonanywhere.com/tours/'
+connect = sqlite3.connect('app_database.db')
+
 
 def scrape(URL):
     response = requests.get(URL)
@@ -17,13 +21,22 @@ def extract(page_source_or_url):
     value = extractor.extract(page_source_or_url)['tours']
     return value
 
-def store(extracted_data):
-    with open('data.txt', 'a') as file:
-        file.write(extracted_data + "\n")
+def store_db(extracted_data):
+    split_content = extracted_data.split(',')
+    split_content = [item.strip() for item in split_content]
+    cursor = connect.cursor()
+    cursor.execute('INSERT INTO events VALUES (?,?,?)', split_content)
+    connect.commit()
 
-def read(extracted_content):
-    with open('data.txt', 'r') as file:
-        return file.read()
+
+def read_db(extracted_content):
+    split_content = extracted_content.split(',')
+    split_items = [item.strip() for item in split_content]
+    band, city, date = split_items
+    cursor = connect.cursor()
+    cursor.execute('SELECT * FROM events WHERE Band_Name=? AND City_Name=? AND Date=?', (band, city, date))
+    data = cursor.fetchall()
+    return tuple(data)
 
 def send_email(msg):
     host = 'smtp.gmail.com'
@@ -41,12 +54,16 @@ def send_email(msg):
         server.sendmail(username, reciever, msg)
 
 if __name__ == '__main__':
-    scraped = scrape(url)
-    extracted = extract(scraped)
-    print(extracted)
+    while True:
+        scraped = scrape(url)
+        extracted = extract(scraped)
+        print(extracted)
+        if extracted != 'No upcoming tours':
+            datas = read_db(extracted)
+            datas = tuple(datas)
+            if not datas:
+                store_db(extracted)
+                send_email(msg='Hey! New Event Tour has been found!')
+                print('Email was sent')
 
-    content = read(extracted)
-    if extracted != 'No upcoming tours':
-        if extracted not in content:
-            store(extracted)
-            send_email(msg='Hey! New Event Tour has been found!')
+        time.sleep(3)
